@@ -1,0 +1,93 @@
+name: Maximo DEV Package CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+
+  maximo-package:
+
+    name: Create Maximo Package
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - maximo-dev
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate package configuration
+        run: |
+          echo "Validating Maximo package configuration"
+
+      - name: Create Maximo package
+        id: create-package
+        run: |
+          RESPONSE=$(curl --fail-with-body \
+            -sS \
+            -X POST \
+            "${{ secrets.MAXIMO_BASE_URL }}/dm/create" \
+            -H "apikey: ${{ secrets.MAXIMO_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -d '{
+              "pkgdefname": "TESTDD",
+              "readme": "Created by GitHub Actions"
+            }')
+
+          echo "$RESPONSE"
+
+          PACKAGE_ID=$(echo "$RESPONSE" | jq -r '.dmpackageid')
+
+          if [ "$PACKAGE_ID" = "null" ] || [ -z "$PACKAGE_ID" ]; then
+            echo "Package creation failed"
+            exit 1
+          fi
+
+          echo "Package ID: $PACKAGE_ID"
+
+          echo "package_id=$PACKAGE_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Distribute Maximo package
+        run: |
+          curl --fail-with-body \
+            -sS \
+            -X POST \
+            "${{ secrets.MAXIMO_BASE_URL }}/dm/distribute" \
+            -H "apikey: ${{ secrets.MAXIMO_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -d '{
+              "pkgdefname": "TESTDD",
+              "dmpackageid": '${{ steps.create-package.outputs.package_id }}',
+              "targetname": "mytarget"
+            }'
+
+      - name: Download Maximo package
+        run: |
+          curl --fail-with-body \
+            -sS \
+            -X GET \
+            "${{ secrets.MAXIMO_BASE_URL }}/dm/download?dmpackagedef=TESTDD&dmpackageid=${{ steps.create-package.outputs.package_id }}" \
+            -H "apikey: ${{ secrets.MAXIMO_API_KEY }}" \
+            -o maximo-migration-package.zip
+
+          ls -lh maximo-migration-package.zip
+
+      - name: Upload Maximo package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: maximo-package-${{ github.run_number }}
+          path: maximo-migration-package.zip
+          retention-days: 1
