@@ -1,0 +1,239 @@
+name: Maximo OpenShift CI/CD
+
+on:
+
+  push:
+    branches:
+      - main
+      - develop
+
+  pull_request:
+    branches:
+      - main
+      - develop
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  OCP_NAMESPACE: maximo-dev
+
+jobs:
+
+  # --------------------------------------------------
+  # 1. Validate source
+  # --------------------------------------------------
+
+  validate:
+
+    name: Validate Maximo Source
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Validate repository
+        run: |
+
+          echo "Repository: ${{ github.repository }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+
+          echo "Checking Maximo source..."
+
+          find . -maxdepth 3 -type f | sort
+
+          echo "Validation completed"
+
+
+  # --------------------------------------------------
+  # 2. Create Maximo customization package
+  # --------------------------------------------------
+
+  package:
+
+    name: Create Maximo Package
+
+    runs-on: ubuntu-latest
+
+    needs:
+      - validate
+
+    steps:
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Create build directory
+        run: |
+
+          mkdir -p build
+
+      - name: Create customization archive
+        run: |
+
+          echo "Creating Maximo customization archive..."
+
+          zip -r build/maximo-customization.zip . \
+            -x ".git/*" \
+            -x ".github/*" \
+            -x "build/*"
+
+      - name: Verify package
+        run: |
+
+          echo "Package created:"
+
+          ls -lh build/maximo-customization.zip
+
+          unzip -t build/maximo-customization.zip
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+
+        with:
+          name: maximo-customization
+          path: build/maximo-customization.zip
+
+
+  # --------------------------------------------------
+  # 3. Connect to OpenShift
+  # --------------------------------------------------
+
+  openshift-login:
+
+    name: OpenShift Validation
+
+    runs-on: ubuntu-latest
+
+    needs:
+      - package
+
+    environment:
+      name: development
+
+    steps:
+
+      - name: Install OpenShift CLI
+        uses: redhat-actions/oc-installer@v1
+
+      - name: Login to OpenShift
+        uses: redhat-actions/oc-login@v1
+
+        with:
+
+          openshift_server_url: ${{ secrets.OPENSHIFT_SERVER_URL }}
+
+          openshift_token: ${{ secrets.OPENSHIFT_TOKEN }}
+
+          insecure_skip_tls_verify: false
+
+      - name: Verify OpenShift connection
+        run: |
+
+          echo "OpenShift cluster:"
+
+          oc whoami
+
+          echo "OpenShift server:"
+
+          oc whoami --show-server
+
+          echo "Current project:"
+
+          oc project
+
+      - name: Verify namespace
+        run: |
+
+          oc get namespace "${OCP_NAMESPACE}"
+
+          echo "Namespace validation completed"
+
+
+  # --------------------------------------------------
+  # 4. Deploy / update Maximo
+  # --------------------------------------------------
+
+  deploy:
+
+    name: Deploy Maximo
+
+    runs-on: ubuntu-latest
+
+    needs:
+      - openshift-login
+
+    environment:
+      name: development
+
+    steps:
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install OpenShift CLI
+        uses: redhat-actions/oc-installer@v1
+
+      - name: Login to OpenShift
+        uses: redhat-actions/oc-login@v1
+
+        with:
+
+          openshift_server_url: ${{ secrets.OPENSHIFT_SERVER_URL }}
+
+          openshift_token: ${{ secrets.OPENSHIFT_TOKEN }}
+
+          insecure_skip_tls_verify: false
+
+      - name: Select Maximo namespace
+        run: |
+
+          oc project "${OCP_NAMESPACE}"
+
+      - name: Verify Maximo workloads
+        run: |
+
+          echo "Maximo workloads before deployment:"
+
+          oc get pods
+
+          oc get deployments
+
+          oc get services
+
+      - name: Deploy Maximo
+        run: |
+
+          echo "Deploying Maximo customization..."
+
+          # Replace this section with the
+          # Maximo/OpenShift deployment commands
+          # used by your environment.
+
+          echo "Deployment command placeholder"
+
+      - name: Wait for deployment
+        run: |
+
+          echo "Waiting for Maximo workloads..."
+
+          sleep 30
+
+          oc get pods
+
+      - name: Verify deployment
+        run: |
+
+          echo "Final Maximo deployment status:"
+
+          oc get pods
+
+          oc get deployments
+
+          oc get services
